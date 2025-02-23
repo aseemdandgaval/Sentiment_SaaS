@@ -9,11 +9,11 @@ import subprocess
 import torchaudio
 from torch.utils.data._utils.collate import default_collate
 
-class MeldDataset(Dataset):
+class MELDDataset(Dataset):
     def __init__(self, data_path, video_dir):
         self.data = pd.read_csv(data_path)
         self.video_dir = video_dir
-        self.tokenizer = AutoTokenizer.from_pretrained('answerdotai/ModernBERT-base')
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         self.sentiment_map = {'negative': 0, 'neutral': 1, 'positive': 2}
         self.emotion_map = {'anger': 0, 'disgust': 1, 'fear': 2, 'joy': 3, 'neutral': 4, 'sadness': 5, 'surprise': 6}
         
@@ -157,9 +157,9 @@ def prepare_dataloaders(train_csv, train_video_dir,
                        dev_csv, dev_video_dir,
                        test_csv, test_video_dir, batch_size=32):
     
-    train_dataset = MeldDataset(train_csv, train_video_dir)
-    dev_dataset = MeldDataset(dev_csv, dev_video_dir)
-    test_dataset = MeldDataset(test_csv, test_video_dir)
+    train_dataset = MELDDataset(train_csv, train_video_dir)
+    dev_dataset = MELDDataset(dev_csv, dev_video_dir)
+    test_dataset = MELDDataset(test_csv, test_video_dir)
     
     train_dataloader = DataLoader(train_dataset,
                                   batch_size=batch_size,
@@ -191,14 +191,19 @@ if __name__ == '__main__':
         'C:/Users/aseem/Downloads/Deep Learning/Sentiment_SaaS/dataset/test/output_repeated_splits_test/'
     )
 
-    print(len(train_loader))
-    print(len(dev_loader))
-    print(len(test_loader))
+    print("Train Loader Batches:", len(train_loader))
+    print("Dev Loader Batches:", len(dev_loader))
+    print("Test Loader Batches:", len(test_loader))
+    print("")
 
     for batch in train_loader:
-        print(batch['text_inputs'])
-        print(batch['video_frames'].shape)
-        print(batch['audio_features'].shape)
-        print(batch['emotion_label'])
-        print(batch['sentiment_label'])
+        print("Text input Size:", batch['text_inputs']['input_ids'].shape)
+        print("Attention Mask Size:", batch['text_inputs']['attention_mask'].shape)
+        print("Video Frames Size:", batch['video_frames'].shape)
+        print("Audio Features Size:", batch['audio_features'].shape)
+        print("Emotion Label Size:", batch['emotion_label'].shape)
+        print("Sentiment Label Size:", batch['sentiment_label'].shape)
+        print("")
+        print("Text input IDs:", batch['text_inputs']['input_ids'])
+        print("Attention Mask :", batch['text_inputs']['attention_mask'])
         break
