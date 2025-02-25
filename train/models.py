@@ -27,14 +27,15 @@ class VideoEncoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.backbone = vision_models.video.r3d_18(weights=R3D_18_Weights.KINETICS400_V1)
+
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
         num_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Sequential(nn.Linear(num_features, 128),
                                          nn.ReLU(),
                                          nn.Dropout(0.2)
         )
-
-        for param in self.backbone.parameters():
-            param.requires_grad = False
 
     def forward(self, x):
         # [batch_size, frames, channels, height, width] -> [batch_size, channels, frames, height, width]
@@ -84,7 +85,7 @@ class MultiModalFusion(nn.Module):
                                     nn.Dropout(0.2)
                                     )
         
-        # Classification Layer
+        # Emotion Classifier
         self.emotion_classifier = nn.Sequential(nn.Linear(256, 64),
                                             nn.ReLU(),
                                             nn.Dropout(0.2),
@@ -92,6 +93,7 @@ class MultiModalFusion(nn.Module):
                                             # nn.Softmax(dim=1)
                                             )
         
+        # Sentiment Classifier
         self.sentiment_classifier = nn.Sequential(nn.Linear(256, 64),
                                             nn.ReLU(),
                                             nn.Dropout(0.2),
@@ -147,6 +149,7 @@ def main():
     print("\nSentiment Predictions:")
     for i, prob in enumerate(sentiment_probs):
         print(f"{sentiment_map[i]}: {prob:.2f}")
+
 
     ## Check outputs of each model using dummy inputs
     # text_encoder = TextEncoder().to(device).eval()
