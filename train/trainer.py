@@ -24,7 +24,7 @@ class MultiModalTrainer:
 
         # Tensorboard logging
         time_start = time.now().strftime('%b%d_%H-%M-%S') # e.g. Jan01_14-30-00
-        base_dir = f"logs/train/tensorboard/" if 'SM_MODEL_DIR' in os.environ else 'runs'
+        base_dir = '/opt/ml/output/tensorboard' if 'SM_MODEL_DIR' in os.environ else 'runs'
         log_dir = f"{base_dir}/run_{time_start}"
         self.writer = SummaryWriter(log_dir=log_dir)
         self.current_train_losses = None
