@@ -11,7 +11,6 @@ from trainer import MultiModalTrainer
 from install_ffmpeg import install_ffmpeg
 from meld_dataset import prepare_dataloaders
 
-
 # AWS SageMaker
 SM_MODEL_DIR = os.environ.get('SM_MODEL_DIR', ".")
 SM_CHANNEL_TRAINING = os.environ.get('SM_CHANNEL_TRAINING', "/opt/ml/input/data/training")
@@ -128,4 +127,6 @@ def main():
             ]
         }))
 
+if __name__ == '__main__':
+    main()
 
