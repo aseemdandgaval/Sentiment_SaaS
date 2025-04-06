@@ -24,7 +24,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Hyperparameters
     parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-4)
     
     # Data Directories
@@ -78,16 +78,16 @@ def main():
         "epochs": [],
     }
 
-    for epoch in tqdm(range(args.epochs)):
+    for epoch in tqdm(range(args.epochs), desc=f'Epoch {epoch}/{args.epochs}'):
         train_losses = trainer.train()
-        val_losses, val_metrics = trainer.evaluate(val_loader)
+        val_losses, val_metrics = trainer.evaluate(val_loader, phase="val")
 
         # Track metrics
         metrics_data["train_losses"].append(train_losses)
         metrics_data["val_losses"].append(val_losses)
         metrics_data["epochs"].append(epoch)
         
-        # Log metrics in SageMaker Format
+        # Display metrics in SageMaker Format
         print(json.dumps({
             "metrics": [
                 {"Name": "train:loss", "Value": train_losses['total']},
@@ -109,9 +109,10 @@ def main():
         if val_losses['total'] < best_val_loss:
             best_val_loss = val_losses['total']
             torch.save(model.state_dict(), os.path.join(args.model_dir, 'best_model.pt'))
+            print("Model saved!")
 
     # After traning is complete, evaluate the model on the test set
-    print("Evaluating on test set...")
+    print("\nEvaluating on test set...")
     test_loss, test_metrics = trainer.evaluate(test_loader, phase="test")
     metrics_data["test_losses"] = test_loss["total"]
 

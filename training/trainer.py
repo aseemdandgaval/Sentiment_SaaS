@@ -3,6 +3,7 @@ import torch
 from collections import namedtuple
 from datetime import datetime as time
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from models import MultiModalFusion
 from sklearn.metrics import precision_score, accuracy_score, f1_score
@@ -18,7 +19,7 @@ class MultiModalTrainer:
         # Log dataset size
         train_size = len(train_loader.dataset)
         val_size = len(val_loader.dataset)
-        print(f"Train Dataset Size: {train_size:,}")
+        print(f"\n\nTrain Dataset Size: {train_size:,}")
         print(f"Validation Dataset Size: {val_size:,}")
         print(f"Batches per Epoch: {len(train_loader):,}")
 
@@ -51,7 +52,7 @@ class MultiModalTrainer:
     def log_metrics(self, losses, metrics=None, phase="train"):
         if phase == "train":
             self.current_train_losses = losses
-        else: # Validation
+        else: # Validation or Testing
             self.writer.add_scalar(f"loss/total/train", self.current_train_losses['total'], self.global_step)
             self.writer.add_scalar(f"loss/total/val", losses['total'], self.global_step)
             self.writer.add_scalar(f"loss/sentiment/train",  self.current_train_losses['sentiment'], self.global_step)
@@ -67,9 +68,12 @@ class MultiModalTrainer:
             self.writer.add_scalar(f"{phase}/sentiment_precision/",  metrics['sentiment_precision'], self.global_step)
             self.writer.add_scalar(f"{phase}/sentiment_f1/",  metrics['sentiment_f1'], self.global_step)
 
-    def train(self, epochs=10):
+    def train(self):
         self.model.train()
         training_loss = {'total': 0, 'emotion': 0, 'sentiment': 0}
+
+        # # Wrap the train_loader with tqdm
+        # progress_bar = tqdm(self.train_loader, total=len(self.train_loader), desc=f'Epoch {current_epoch+1}/{total_epochs}')
 
         for batch in self.train_loader:
             # Move batch to GPU
@@ -110,6 +114,9 @@ class MultiModalTrainer:
                 'sentiment': sentiment_loss.item()
                 }, phase="train"
             )
+
+            # Update the progress bar with the current loss
+            # progress_bar.set_postfix(loss=f'{total_loss.item():.4f}')
 
         return {k: v / len(self.train_loader) for k, v in training_loss.items()}
     
