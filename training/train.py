@@ -78,7 +78,8 @@ def main():
         "epochs": [],
     }
 
-    for epoch in tqdm(range(args.epochs), desc=f'Epoch {epoch}/{args.epochs}'):
+    for epoch in tqdm(range(args.epochs), desc=f'Epoch:'):
+        # print(f"Epoch {epoch+1}/{args.epochs}")
         train_losses = trainer.train()
         val_losses, val_metrics = trainer.evaluate(val_loader, phase="val")
 
