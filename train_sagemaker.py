@@ -8,14 +8,14 @@ sagemaker_sess = sagemaker.Session(boto_session=boto_sess)
 
 def start_training():
     tensorboard_config = TensorBoardOutputConfig(
-        s3_output_path="s3://sentiment-saas/tensorboard",
+        s3_output_path="s3://your-bucket-name/tensorboard",
         container_local_output_path="/opt/ml/output/tensorboard"
     )
 
     estimator = PyTorch(
         entry_point="train.py",
         source_dir="training",
-        role="arn:aws:iam::741448920087:role/sentiment-analysis-execution-role", 
+        role="your-arn-and-execution-role",
         framework_version="2.5.1",
         py_version="py311",
         instance_count=1,
@@ -30,9 +30,9 @@ def start_training():
     try:
         print("Starting training...")
         estimator.fit({
-            "training": "s3://sentiment-saas/dataset/train",
-            "validation": "s3://sentiment-saas/dataset/dev",
-            "test": "s3://sentiment-saas/dataset/test",
+            "training": "s3://your-bucket-name/dataset/train",
+            "validation": "s3://your-bucket-name/dataset/dev",
+            "test": "s3://your-bucket-name/dataset/test",
              })
     except Exception as e:
         print(e)
