@@ -7,7 +7,7 @@ import torchaudio
 from tqdm import tqdm
 
 from models import MultiModalFusion
-from trainer import MultiModalTrainer
+from trainer import MultiModalTrainer, get_lr
 from install_ffmpeg import install_ffmpeg
 from meld_dataset import prepare_dataloaders
 
@@ -25,7 +25,7 @@ def parse_args():
     # Hyperparameters
     parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--batch-size', type=int, default=16)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=6e-4)
     
     # Data Directories
     parser.add_argument("--train-dir", type=str, default=SM_CHANNEL_TRAINING)
@@ -69,7 +69,9 @@ def main():
 
     # Load the model
     model = MultiModalFusion().to(device)
-    trainer = MultiModalTrainer(model, train_loader, val_loader)
+    optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=args.lr, device=device)
+    trainer = MultiModalTrainer(model, optimizer, learning_rate=args.lr, epochs=args.epochs, train_loader=train_loader, val_loader=val_loader)
+    torch.set_float32_matmul_precision('high')
     best_val_loss = float('inf')
 
     metrics_data = {
@@ -79,7 +81,6 @@ def main():
     }
 
     for epoch in tqdm(range(args.epochs), desc=f'Epoch:'):
-        # print(f"Epoch {epoch+1}/{args.epochs}")
         train_losses = trainer.train()
         val_losses, val_metrics = trainer.evaluate(val_loader, phase="val")
 

@@ -1,4 +1,5 @@
 import os
+import math
 import torch 
 from collections import namedtuple
 from datetime import datetime as time
@@ -56,8 +57,24 @@ def compute_class_weights(dataset):
     return emotion_weights, sentiment_weights
 
 
+def get_lr(max_lr, min_lr, max_steps, warmup_steps, iteration):
+    # 1) linear warmup for warmup_iters steps
+    if iteration < warmup_steps:
+        return max_lr * (iteration+1) / warmup_steps
+    
+    # 2) if it > lr_decay_iters, return min learning rate
+    if iteration > max_steps:
+        return min_lr
+    
+    # 3) in between, use cosine decay down to min learning rate
+    decay_ratio = (iteration - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff starts at 1 and goes to 0
+    return min_lr + coeff * (max_lr - min_lr)
+
+
 class MultiModalTrainer:
-    def __init__(self, model, train_loader, val_loader):
+    def __init__(self, model, optimizer, learning_rate, epochs, train_loader, val_loader):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -78,25 +95,31 @@ class MultiModalTrainer:
         self.global_step = 0
 
         # Set up optimizer
-        self.optimizer = torch.optim.Adam([
-            {'params': model.text_encoder.parameters(), 'lr': 8e-6},
-            {'params': model.video_encoder.parameters(), 'lr': 8e-5},
-            {'params': model.audio_encoder.parameters(), 'lr': 8e-5},
-            {'params': model.fusion.parameters(), 'lr': 5e-4},
-            {'params': model.emotion_classifier.parameters(), 'lr': 5e-4},
-            {'params': model.sentiment_classifier.parameters(), 'lr': 5e-4}
-            ],
-            weight_decay=1e-5)
+        self.optimizer = optimizer
+        # self.optimizer = torch.optim.Adam([
+        #     {'params': model.text_encoder.parameters(), 'lr': 8e-6},
+        #     {'params': model.video_encoder.parameters(), 'lr': 8e-5},
+        #     {'params': model.audio_encoder.parameters(), 'lr': 8e-5},
+        #     {'params': model.fusion.parameters(), 'lr': 5e-4},
+        #     {'params': model.emotion_classifier.parameters(), 'lr': 5e-4},
+        #     {'params': model.sentiment_classifier.parameters(), 'lr': 5e-4}
+        #     ],
+        #     weight_decay=1e-5)
         
         # Learning rate scheduler and loss functions
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=2
-        )
+        self.max_lr = learning_rate
+        self.min_lr = self.max_lr * 0.1
+        self.warmup_steps = len(train_loader)
+        self.max_steps = len(train_loader) * epochs
+        # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     self.optimizer, mode='min', factor=0.1, patience=2
+        # )
 
         # Normalize class weights
         emotion_weights, sentiment_weights = compute_class_weights(train_loader.dataset)
 
         device = next(model.parameters()).device
+        self.device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.emotion_weights = emotion_weights.to(device)
         self.sentiment_weights = sentiment_weights.to(device)
@@ -136,6 +159,7 @@ class MultiModalTrainer:
 
         for batch in self.train_loader:
             # Move batch to GPU
+            self.optimizer.zero_grad()
             device = next(self.model.parameters()).device
             text_inputs = {
                 'input_ids': batch['text_inputs']['input_ids'].to(device),
@@ -146,18 +170,23 @@ class MultiModalTrainer:
             emotion_label = batch['emotion_label'].to(device)
             sentiment_label = batch['sentiment_label'].to(device)
 
-            # Forward pass
-            self.optimizer.zero_grad()
-            outputs = self.model(text_inputs, video_frames, audio_features)
+            # Forward pass with mixed precision
+            with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                outputs = self.model(text_inputs, video_frames, audio_features)
 
-            # Compute Loss
-            emotion_loss = self.emotion_loss(outputs['emotions'], emotion_label)
-            sentiment_loss = self.sentiment_loss(outputs['sentiments'], sentiment_label)
-            total_loss = emotion_loss + sentiment_loss
+                # Compute Loss
+                emotion_loss = self.emotion_loss(outputs['emotions'], emotion_label)
+                sentiment_loss = self.sentiment_loss(outputs['sentiments'], sentiment_label)
+                total_loss = emotion_loss + sentiment_loss
 
             # Backward pass and gradient clipping
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+
+            # Get learning rate and update parameters
+            lr = get_lr(self.max_lr, self.min_lr, self.max_steps, self.warmup_steps, self.global_step)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
             self.optimizer.step()
 
             # Track losses
@@ -201,12 +230,13 @@ class MultiModalTrainer:
                 sentiment_labels = batch['sentiment_label'].to(device)
 
                 # Forward pass
-                outputs = self.model(text_inputs, video_frames, audio_features)
+                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                    outputs = self.model(text_inputs, video_frames, audio_features) 
 
-                # Compute and track losses
-                emotion_loss = self.emotion_loss(outputs['emotions'], emotion_labels)
-                sentiment_loss = self.sentiment_loss(outputs['sentiments'], sentiment_labels)
-                total_loss = emotion_loss + sentiment_loss
+                    # Compute and track losses
+                    emotion_loss = self.emotion_loss(outputs['emotions'], emotion_labels)
+                    sentiment_loss = self.sentiment_loss(outputs['sentiments'], sentiment_labels)
+                    total_loss = emotion_loss + sentiment_loss
 
                 losses['total'] += total_loss.item()
                 losses['emotion'] += emotion_loss.item()
@@ -219,8 +249,8 @@ class MultiModalTrainer:
 
         avg_loss = {k: v / len(data_loader) for k, v in losses.items()}
 
-        if phase == "val":
-            self.scheduler.step(avg_loss['total'])
+        # if phase == "val":
+        #     self.scheduler.step(avg_loss['total'])
 
         # Calculate accuracy, precision and F1 score metrics
         emotion_accuracy = accuracy_score(all_emotion_labels, all_emotion_preds)
