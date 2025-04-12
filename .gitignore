@@ -173,3 +173,8 @@ cython_debug/
 dataset/
 runs/
 tensorboard_logs/
+deployment/model
+deployment/model.tar.gz
+deployment/joy.mp4
+deployment/deploy_endpoint_copy.py
+model.tar.gz

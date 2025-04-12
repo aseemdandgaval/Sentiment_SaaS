@@ -1,4 +1,5 @@
 import torch
+import inspect
 import torch.nn as nn
 from transformers import AutoModel
 from torchvision import models as vision_models
@@ -7,9 +8,11 @@ from meld_dataset import MELDDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
 class TextEncoder(nn.Module):
-    def __init__(self, model_name='bert-base-uncased'):
+    def __init__(self, model_name='answerdotai/ModernBERT-base'):
         super().__init__()
+        self.model_name = model_name
         self.modern_bert = AutoModel.from_pretrained(model_name)
         self.mlp = nn.Linear(768, 128)
  
@@ -17,9 +20,16 @@ class TextEncoder(nn.Module):
             param.requires_grad = False
 
     def forward(self, input_ids, attention_mask):
-        out = self.modern_bert(input_ids, attention_mask=attention_mask)
-        out = out.pooler_output
-        out = self.mlp(out)
+        if self.model_name == 'answerdotai/ModernBERT-base':
+            out = self.modern_bert(input_ids, attention_mask=attention_mask)
+            out = out.last_hidden_state
+            out = out.mean(dim=1)  # shape: [batch_size, hidden_size]
+            out = self.mlp(out)
+        else:
+            out = self.modern_bert(input_ids, attention_mask=attention_mask)
+            out = out.pooler_output
+            out = self.mlp(out)
+
         return out
 
 
@@ -71,6 +81,7 @@ class AudioEncoder(nn.Module):
         x = self.mlp(x.squeeze(-1))
         return x
     
+
 class MultiModalFusion(nn.Module):
     def __init__(self):
         super().__init__()
@@ -116,7 +127,38 @@ class MultiModalFusion(nn.Module):
             'emotions': emotion_out,
             'sentiments': sentiment_out
         }
+    
+    def configure_optimizers(self, weight_decay, learning_rate, device):
+        # start with all of the candidate parameters (that require grad)
+        param_dict = {param_name: param for param_name, param in self.named_parameters()}
+        param_dict = {param_name: param for param_name, param in param_dict.items() if param.requires_grad}
+
+        # Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2] # Embeddings and weights in matmul
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2] # 1D tensors like LayerNorms, biases
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(f"Num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+        print(f"Num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+
+        # Create AdamW optimizer and use the fused version if it is available
+        # Fuses the kernels used in the updation of parameters to make it faster
+        # Check if the fused version of AdamW is available and if the device is CUDA
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device.type == 'cuda'
+        print(f"Using fused AdamW: {use_fused} \n")
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
+
+        return optimizer
         
+
+
 def main():
     dataset = MELDDataset(
         'C:/Users/aseem/Downloads/Deep Learning/Sentiment_SaaS/dataset/train/train_sent_emo.csv',
